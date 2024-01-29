@@ -1,0 +1,44 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <UserSecretsId>f234dedb-4b7f-42ce-bd86-8a2f421b9495</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Content Include="bin\Debug\net8.0\files\18B.txt" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="bin\Debug\net8.0\files\91KB.pdf" />
+    <None Include="bin\Debug\net8.0\files\28MB.pdf" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.UserSecrets" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="8.0.0" />
+    <PackageReference Include="SenseNet.Client" Version="3.0.5" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="appsettings.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+	<Target Name="CopyFiles" AfterTargets="Build">
+		<Copy SourceFiles="@(FilesToCopy)" DestinationFolder="$(OutDir)/files" />
+	</Target>
+
+	<ItemGroup>
+		<FilesToCopy Include="files/**" />
+	</ItemGroup>
+
+
+</Project>
