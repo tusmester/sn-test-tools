@@ -11,18 +11,21 @@ internal class TestOrchestrator
     private readonly IRepositoryCollection _repositoryCollection;
     private readonly WriterExecutor _writerExecutor;
     private readonly ReaderExecutor _readerExecutor;
+    private readonly BackupExecutor _backupExecutor;
     private readonly NlbTestOptions _options;
     private readonly ILogger<TestOrchestrator> _logger;
 
     public TestOrchestrator(IRepositoryCollection repositoryCollection, 
         WriterExecutor writerExecutor,
         ReaderExecutor readerExecutor,
+        BackupExecutor backupExecutor,
         IOptions<NlbTestOptions> options,
         ILogger<TestOrchestrator> logger)
     {
         _repositoryCollection = repositoryCollection;
         _writerExecutor = writerExecutor;
         _readerExecutor = readerExecutor;
+        _backupExecutor = backupExecutor;
         _options = options.Value;
         _logger = logger;
     }
@@ -83,7 +86,16 @@ internal class TestOrchestrator
             readerTasks.Add(RepeatReaderOperationsAsync(cancel));
         }
 
-        await Task.WhenAll(writerTasks.Union(readerTasks));
+        _logger.LogTrace("Starting BACKUP operation...");
+
+        var backupTask = _backupExecutor.ExecuteAsync(new ExecutionContext
+        {
+            Repositories = new[] { "repo1" }
+        }, _options.Backup, cancel);
+
+        await Task.WhenAll(writerTasks
+            .Union(readerTasks)
+            .Union(new []{ backupTask }));
 
         totalTime.Stop();
 
@@ -111,7 +123,7 @@ internal class TestOrchestrator
         {
             try
             {
-                await _writerExecutor.ExecuteAsync(executionContext, cancel);
+                await _writerExecutor.ExecuteAsync(executionContext, _options.ReadOperations, cancel);
             }
             catch (OperationCanceledException)
             {
@@ -134,7 +146,7 @@ internal class TestOrchestrator
         {
             try
             {
-                await _readerExecutor.ExecuteAsync(executionContext, cancel);
+                await _readerExecutor.ExecuteAsync(executionContext, _options.WriteOperations, cancel);
             }
             catch (OperationCanceledException)
             {

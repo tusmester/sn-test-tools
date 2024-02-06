@@ -30,6 +30,7 @@ var host = Host.CreateDefaultBuilder()
             })
             .AddSingleton<ReaderExecutor>()
             .AddSingleton<WriterExecutor>()
+            .AddSingleton<BackupExecutor>()
             .AddSingleton<TestOrchestrator>()
             .Configure<NlbTestOptions>(nlbTestOptions =>
             {

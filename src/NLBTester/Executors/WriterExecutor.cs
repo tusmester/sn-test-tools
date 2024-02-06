@@ -28,7 +28,7 @@ namespace NLBTester.Executors
             var timer = Stopwatch.StartNew();
 
             Logger.LogTrace("[{ContextId}] {ExecutorName} Iteration {Iteration} on repository {repositoryName} started.",
-                ExecutorName, context.Id, context.Iteration, repositoryName);
+                context.Id, ExecutorName, context.Iteration, repositoryName);
 
             var repository = await RepositoryCollection.GetRepositoryAsync(repositoryName, cancel);
             var parentPath = RepositoryPath.Combine(TestContainerPath, repositoryName);
@@ -63,7 +63,7 @@ namespace NLBTester.Executors
                 if (fileContents.Count != uploadedFileIds.Length)
                 {
                     Logger.LogWarning("[{ContextId}] File count mismatch in repository " +
-                                       "{repositoryName}: {QueryContentCount} (queried) / {UploadedContentCount} (uploaded)",
+                                      "{repositoryName}: {QueryContentCount} (queried) / {UploadedContentCount} (uploaded)",
                         context.Id, repositoryName, fileContents.Count, uploadedFileIds.Length);
                 }
             }
@@ -71,6 +71,11 @@ namespace NLBTester.Executors
             {
                 // return gracefully, cancel was requested
                 return;
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "[{ContextId}] ERROR while querying uploaded files in repository {RepositoryName}.",
+                    context.Id, repositoryName);
             }
 
             if (cancel.IsCancellationRequested)
@@ -94,6 +99,11 @@ namespace NLBTester.Executors
                     {
                         // do nothing, cancel was requested
                     }
+                    catch (Exception ex)
+                    {
+                        Logger.LogError(ex, "[{ContextId}] ERROR when deleting file {FileId} in repository {RepositoryName}.",
+                            context.Id, fileId, repositoryName);
+                    }
                 })
                 .ToList();
 
@@ -103,7 +113,7 @@ namespace NLBTester.Executors
 
             Logger.LogTrace("[{ContextId}] {ExecutorName} Iteration {Iteration} on repository {repositoryName} ended. " +
                              "Elapsed time: {ElapsedTime}.",
-                ExecutorName, context.Id, context.Iteration, repositoryName, timer.Elapsed);
+                context.Id, ExecutorName, context.Iteration, repositoryName, timer.Elapsed);
         }
         
         private async Task<UploadResult> UploadFile(IRepository repo, string parentPath, string filePath, CancellationToken cancel)
@@ -111,15 +121,12 @@ namespace NLBTester.Executors
             if (cancel.IsCancellationRequested)
                 return new UploadResult();
 
-            await using var fileStream = System.IO.File.OpenRead(filePath);
-
-            if (cancel.IsCancellationRequested)
-                return new UploadResult();
-
             var contentName = Path.GetFileNameWithoutExtension(filePath) + "-" + Guid.NewGuid() + Path.GetExtension(filePath);
 
             try
             {
+                await using var fileStream = System.IO.File.OpenRead(filePath);
+
                 var uploadResult = await repo.UploadAsync(new UploadRequest
                 {
                     ContentName = contentName,
@@ -131,6 +138,11 @@ namespace NLBTester.Executors
             catch (OperationCanceledException)
             {
                 // do nothing, cancel was requested
+            }
+            catch(Exception ex)
+            {
+                Logger.LogError(ex, "Error while uploading file {FilePath} to repository {RepositoryName}.",
+                                       filePath, repo.Server.Url);
             }
 
             return new UploadResult();

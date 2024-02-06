@@ -11,6 +11,7 @@ internal abstract class ExecutorBase
     protected ILogger<ExecutorBase> Logger { get; }
 
     protected virtual string ExecutorName => GetType().Name;
+    //protected virtual bool SingleRepository => false;
 
     protected ExecutorBase(IRepositoryCollection repositoryCollection,
         IOptions<NlbTestOptions> options, ILogger<ExecutorBase> logger)
@@ -20,17 +21,42 @@ internal abstract class ExecutorBase
         Logger = logger;
     }
 
-    public async Task ExecuteAsync(ExecutionContext context, CancellationToken cancel)
+    public async Task ExecuteAsync(ExecutionContext context, OperationOptions operationOptions, CancellationToken cancel)
     {
         if (cancel.IsCancellationRequested)
             return;
 
         context.Iteration++;
 
-        var tasks = context.Repositories
-            .Select(repositoryName => ExecuteOnRepository(context, repositoryName, cancel)).ToList();
+        try
+        {
+            if (operationOptions.InitialDelaySeconds > 0)
+            {
+                Logger.LogTrace("[{ContextId}] {ExecutorName} Waiting {InitialDelaySeconds} " +
+                                "before starting the first iteration.",
+                    context.Id, ExecutorName,
+                    TimeSpan.FromSeconds(operationOptions.InitialDelaySeconds));
 
-        await Task.WhenAll(tasks);
+                await Task.Delay(operationOptions.InitialDelaySeconds * 1000, cancel);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        try
+        {
+            var tasks = context.Repositories
+                .Select(repositoryName => ExecuteOnRepository(context, repositoryName, cancel)).ToList();
+
+            await Task.WhenAll(tasks);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "[{ContextId}] {ExecutorName} ",
+                context.Id, ExecutorName);
+        }
     }
 
     protected abstract Task ExecuteOnRepository(ExecutionContext context, string repositoryName, CancellationToken cancel);

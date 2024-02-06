@@ -1,9 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Diagnostics;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using SenseNet.Client;
@@ -29,7 +24,7 @@ namespace NLBTester.Executors
             var timer = Stopwatch.StartNew();
 
             Logger.LogTrace("[{ContextId}] {ExecutorName} Iteration {Iteration} on repository {repositoryName} started.",
-                ExecutorName, context.Id, context.Iteration, repositoryName);
+                context.Id, ExecutorName, context.Iteration, repositoryName);
 
             try
             {
@@ -41,16 +36,16 @@ namespace NLBTester.Executors
                     ContentQuery = "TypeIs:File AND InTree:'/Root/Content'",
                     Select = new[]
                     {
-                    "Id", "Name", "Path", "Type", "CreatedBy/Id", "CreatedBy/Name", "CreatedBy/Path",
-                    "CreatedBy/Type"
-                },
+                        "Id", "Name", "Path", "Type", "CreatedBy/Id", "CreatedBy/Name", "CreatedBy/Path",
+                        "CreatedBy/Type"
+                    },
                     Expand = new[] { "CreatedBy" },
                     Top = 100
                 }, cancel);
 
                 Logger.LogTrace("[{ContextId}] {ExecutorName} Iteration {Iteration} on repository {repositoryName} - " +
                                 "File query returned {FileCount} items.",
-                    ExecutorName, context.Id, context.Iteration, repositoryName, fileContents.Count);
+                    context.Id, ExecutorName, context.Iteration, repositoryName, fileContents.Count);
 
                 // check if the operation is cancelled
                 if (cancel.IsCancellationRequested)
@@ -67,7 +62,7 @@ namespace NLBTester.Executors
 
                 Logger.LogTrace("[{ContextId}] {ExecutorName} Iteration {Iteration} on repository {repositoryName} - " +
                                 "Folder query returned {FolderCount} items.",
-                    ExecutorName, context.Id, context.Iteration, repositoryName, folderContents.Count);
+                    context.Id, ExecutorName, context.Iteration, repositoryName, folderContents.Count);
 
                 // check if the operation is cancelled
                 if (cancel.IsCancellationRequested)
@@ -83,12 +78,20 @@ namespace NLBTester.Executors
 
                 Logger.LogTrace("[{ContextId}] {ExecutorName} Iteration {Iteration} on repository {repositoryName} - " +
                                 "User query returned {UserCount} items.",
-                    ExecutorName, context.Id, context.Iteration, repositoryName, userContents.Count);
+                    context.Id, ExecutorName, context.Iteration, repositoryName, userContents.Count);
 
             }
             catch (OperationCanceledException)
             {
                 // return gracefully, cancel was requested
+                return;
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "[{ContextId}] {ExecutorName} Iteration {Iteration} on repository " +
+                                    "{repositoryName} threw an ERROR.",
+                    context.Id, ExecutorName, context.Iteration, repositoryName);
+
                 return;
             }
 
@@ -99,7 +102,7 @@ namespace NLBTester.Executors
 
             Logger.LogTrace("[{ContextId}] {ExecutorName} Iteration {Iteration} on repository {repositoryName} ended. " +
                             "Elapsed time: {ElapsedTime}.",
-                ExecutorName, context.Id, context.Iteration, repositoryName, timer.Elapsed);
+                context.Id, ExecutorName, context.Iteration, repositoryName, timer.Elapsed);
         }
     }
 }
