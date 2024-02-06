@@ -1,55 +1,41 @@
 ﻿using SenseNet.Client;
 using System.Diagnostics;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using File = SenseNet.Client.File;
 using OperationCanceledException = System.OperationCanceledException;
 
-namespace NLBTester
+namespace NLBTester.Executors
 {
-    internal class TestExecutor
+    internal class WriterExecutor : ExecutorBase
     {
         public const string TestContainerPath = "/Root/Content/nlbtestlib";
 
-        private readonly IRepositoryCollection _repositoryCollection;
-        private readonly NlbTestOptions _options;
-        private int _iteration;
-        private string ThreadIdentifier { get; } = Guid.NewGuid().ToString();
-
-        public TestExecutor(IRepositoryCollection repositoryCollection, IOptions<NlbTestOptions> options)
+        public WriterExecutor(IRepositoryCollection repositoryCollection,
+            IOptions<NlbTestOptions> options,
+            ILogger<WriterExecutor> logger) : base(repositoryCollection, options, logger)
         {
-            _repositoryCollection = repositoryCollection;
-            _options = options.Value;
         }
 
-        public async Task ExecuteAsync(string[] repositories, CancellationToken cancel)
+        protected override async Task ExecuteOnRepository(ExecutionContext context, string repositoryName, CancellationToken cancel)
         {
             if (cancel.IsCancellationRequested)
                 return;
-
-            _iteration++;
 
             var filesFolderPath = Path.Combine(AppContext.BaseDirectory, "files");
             var filePaths = Directory.GetFiles(filesFolderPath);
 
-            var tasks = repositories.Select(repositoryName => ExecuteOnRepository(repositoryName, filePaths, cancel)).ToList();
+            var timer = Stopwatch.StartNew();
 
-            await Task.WhenAll(tasks);
-        }
+            Logger.LogTrace("[{ContextId}] {ExecutorName} Iteration {Iteration} on repository {repositoryName} started.",
+                ExecutorName, context.Id, context.Iteration, repositoryName);
 
-        private async Task ExecuteOnRepository(string repositoryName, string[] filePaths, CancellationToken cancel)
-        {
-            if (cancel.IsCancellationRequested)
-                return;
-
-            var time = Stopwatch.StartNew();
-            ConsoleWriteLine($"Iteration {_iteration} on {repositoryName} started.");
-
-            var repository = await _repositoryCollection.GetRepositoryAsync(repositoryName, cancel);
+            var repository = await RepositoryCollection.GetRepositoryAsync(repositoryName, cancel);
             var parentPath = RepositoryPath.Combine(TestContainerPath, repositoryName);
 
             // UPLOAD start
             var uploadTasks = filePaths
-                .Select(filePath => UploadFile(repository, parentPath, filePath, string.Empty, cancel))
+                .Select(filePath => UploadFile(repository, parentPath, filePath, cancel))
                 .ToList();
 
             await Task.WhenAll(uploadTasks);
@@ -57,11 +43,11 @@ namespace NLBTester
             if (cancel.IsCancellationRequested)
                 return;
 
-            if (await DelayAndCheckCancel(_options.StepDelay, cancel))
+            if (await DelayAndCheckCancel(Options.WriteOperations.StepDelay, cancel))
                 return;
 
             // get uploaded file ids
-            var fileIds = uploadTasks
+            var uploadedFileIds = uploadTasks
                 .Where(uploadTask => uploadTask.Result.Id != 0)
                 .Select(uploadTask => uploadTask.Result.Id).ToArray();
 
@@ -70,12 +56,16 @@ namespace NLBTester
             {
                 var fileContents = await repository.QueryAsync<File>(new QueryContentRequest
                 {
-                    ContentQuery = $"TypeIs:File AND Id:({string.Join(' ', fileIds)})",
+                    ContentQuery = $"TypeIs:File AND Id:({string.Join(' ', uploadedFileIds)})",
                     Select = new[] { "Id", "Name", "Path", "Type" },
                 }, cancel);
 
-                if (fileContents.Count != fileIds.Length)
-                    ConsoleWriteLine($"File count mismatch in repository {repositoryName}: {fileContents.Count} != {fileIds.Length}");
+                if (fileContents.Count != uploadedFileIds.Length)
+                {
+                    Logger.LogWarning("[{ContextId}] File count mismatch in repository " +
+                                       "{repositoryName}: {QueryContentCount} (queried) / {UploadedContentCount} (uploaded)",
+                        context.Id, repositoryName, fileContents.Count, uploadedFileIds.Length);
+                }
             }
             catch (OperationCanceledException)
             {
@@ -86,11 +76,14 @@ namespace NLBTester
             if (cancel.IsCancellationRequested)
                 return;
 
-            if (await DelayAndCheckCancel(_options.StepDelay, cancel))
+            if (await DelayAndCheckCancel(Options.WriteOperations.StepDelay, cancel))
                 return;
 
             // DELETE start
-            var deleteTasks = fileIds
+            Logger.LogTrace("[{ContextId}] Deleting uploaded files from repository {repositoryName} in iteration {Iteration}.",
+                context.Id, repositoryName, context.Iteration);
+
+            var deleteTasks = uploadedFileIds
                 .Select(async (fileId) =>
                 {
                     try
@@ -106,38 +99,24 @@ namespace NLBTester
 
             await Task.WhenAll(deleteTasks);
 
-            ConsoleWriteLine($"Iteration {_iteration} on {repositoryName} ended. Elapsed time: {time.Elapsed}");
+            timer.Stop();
+
+            Logger.LogTrace("[{ContextId}] {ExecutorName} Iteration {Iteration} on repository {repositoryName} ended. " +
+                             "Elapsed time: {ElapsedTime}.",
+                ExecutorName, context.Id, context.Iteration, repositoryName, timer.Elapsed);
         }
-
-        private static async Task<bool> DelayAndCheckCancel(int delayMilliseconds, CancellationToken cancel)
-        {
-            // wait a bit before starting the next operation
-            try
-            {
-                await Task.Delay(delayMilliseconds, cancel);
-            }
-            catch (TaskCanceledException)
-            {
-                return true;
-            }
-
-            return cancel.IsCancellationRequested;
-        }
-
-        private async Task<UploadResult> UploadFile(IRepository repo, string parentPath, string filePath, string taskName, CancellationToken cancel)
+        
+        private async Task<UploadResult> UploadFile(IRepository repo, string parentPath, string filePath, CancellationToken cancel)
         {
             if (cancel.IsCancellationRequested)
                 return new UploadResult();
 
-            var time = Stopwatch.StartNew();
             await using var fileStream = System.IO.File.OpenRead(filePath);
 
             if (cancel.IsCancellationRequested)
                 return new UploadResult();
 
             var contentName = Path.GetFileNameWithoutExtension(filePath) + "-" + Guid.NewGuid() + Path.GetExtension(filePath);
-
-            //ConsoleWriteLine($"{taskName} start.");
 
             try
             {
@@ -147,8 +126,6 @@ namespace NLBTester
                     ParentPath = parentPath
                 }, fileStream, cancel);
 
-                //ConsoleWriteLine($"{taskName} end. File {uploadResult.Name} uploaded. Time: {time.Elapsed}");
-
                 return uploadResult;
             }
             catch (OperationCanceledException)
@@ -157,11 +134,6 @@ namespace NLBTester
             }
 
             return new UploadResult();
-        }
-
-        private void ConsoleWriteLine(string message)
-        {
-            Console.WriteLine($"[{ThreadIdentifier}] {message}");
         }
     }
 }
