@@ -24,4 +24,9 @@ internal class OperationOptions
 internal class BackupOptions : OperationOptions
 {
     public string? IndexTarget { get; set; }
+    public string? DatabaseTarget { get; set; }
+    /// <summary>
+    /// How much time should pass between index and db backup operations. Default: 15 seconds.
+    /// </summary>
+    public int BackupGapSeconds { get; set; } = 15;
 }
