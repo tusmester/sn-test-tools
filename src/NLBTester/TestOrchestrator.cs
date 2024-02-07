@@ -39,20 +39,26 @@ internal class TestOrchestrator
             throw new InvalidOperationException("Repository1 is not configured properly.");
 
         _logger.LogInformation("Creating test containers if they do not exist...");
-        _logger.LogTrace("Ensuring document library...");
 
-        await Tools.EnsurePathAsync(WriterExecutor.TestContainerPath, "DocumentLibrary", repository1.Server);
+        _logger.LogTrace("Ensuring test workspace...");
+        await Tools.EnsurePathAsync(TestContents.WorkspacePath, "Workspace", repository1.Server);
+
+        _logger.LogTrace("Ensuring document library...");
+        await Tools.EnsurePathAsync(TestContents.DocumentLibraryPath,"DocumentLibrary", repository1.Server);
 
         _logger.LogTrace("Ensuring repo1 subfolder...");
-        await Tools.EnsurePathAsync(RepositoryPath.Combine(WriterExecutor.TestContainerPath, "repo1"), 
+        await Tools.EnsurePathAsync(RepositoryPath.Combine(TestContents.DocumentLibraryPath, "repo1"), 
             "Folder", repository1.Server);
 
         if (!string.IsNullOrEmpty(repository1.Server.Url))
         {
             _logger.LogTrace("Ensuring repo2 subfolder...");
-            await Tools.EnsurePathAsync(RepositoryPath.Combine(WriterExecutor.TestContainerPath, "repo2"),
+            await Tools.EnsurePathAsync(RepositoryPath.Combine(TestContents.DocumentLibraryPath, "repo2"),
                 "Folder", repository2.Server);
         }
+
+        _logger.LogTrace("Ensuring task list...");
+        await Tools.EnsurePathAsync(TestContents.TaskListPath, "TaskList", repository1.Server);
     }
 
     public async Task<OperationResult> ExecuteAsync(CancellationToken cancel)

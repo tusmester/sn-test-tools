@@ -10,7 +10,7 @@ namespace NLBTester.Executors;
 internal class BackupExecutor : ExecutorBase
 {
     //protected override bool SingleRepository => true;
-    protected bool Executed { get; private set; } = false;
+    protected bool Executed { get; private set; }
     protected BackupOptions BackupOptions => Options.Backup;
     protected string? ConnectionString { get; set; }
 
@@ -23,8 +23,6 @@ internal class BackupExecutor : ExecutorBase
 
     protected override async Task ExecuteOnRepository(ExecutionContext context, string repositoryName, CancellationToken cancel)
     {
-        //TODO: if the backup has already been executed, monitor the process and log the progress.
-
         if (cancel.IsCancellationRequested || Executed)
             return;
 
@@ -36,11 +34,18 @@ internal class BackupExecutor : ExecutorBase
 
         Logger.LogTrace("[{ContextId}] {ExecutorName} Iteration {Iteration} on repository {repositoryName} started.",
             context.Id, ExecutorName, context.Iteration, repositoryName);
-
+        
         try
         {
             var repository = await RepositoryCollection.GetRepositoryAsync(repositoryName, cancel);
 
+            // start creating tasks periodically so that the backup/restore process can be observed
+            var taskCreationTask = CreateTasksPeriodicallyAsync(context, repository, cancel);
+
+            // wait for at least a couple of tasks to be created
+            await Task.Delay(3000, cancel);
+
+            // BACKUP INDEX
             dynamic backupResult = await repository.InvokeActionAsync<JObject>(new OperationRequest
             {
                 Path = "/Root",
@@ -57,36 +62,45 @@ internal class BackupExecutor : ExecutorBase
                             "{repositoryName} - BackupIndex state: {State}.",
                 context.Id, ExecutorName, context.Iteration, repositoryName, state.ToUpper());
 
-            await WaitForIndexBackupAsync(context, repository, cancel);
+            // wait for the index backup to finish
+            if (BackupOptions.BackupGapSeconds > 0)
+            {
+                Logger.LogTrace("[{ContextId}] {ExecutorName} Iteration {Iteration} on repository {repositoryName}. " +
+                                "POLLING and WAITING for the index backup to finish.",
+                    context.Id, ExecutorName, context.Iteration, repositoryName);
 
-            Logger.LogTrace("[{ContextId}] {ExecutorName} Iteration {Iteration} on repository {repositoryName}. " +
-                            "WAITING {BackupGapDelay} before starting DB backup",
-                context.Id, ExecutorName, context.Iteration, repositoryName,
-                TimeSpan.FromSeconds(BackupOptions.BackupGapSeconds));
+                await WaitForIndexBackupAsync(context, repository, cancel);
 
-            await Task.Delay(BackupOptions.BackupGapSeconds * 1000, cancel);
+                Logger.LogTrace("[{ContextId}] {ExecutorName} Iteration {Iteration} on repository {repositoryName}. " +
+                                "WAITING {BackupGapDelay} before starting DB backup",
+                    context.Id, ExecutorName, context.Iteration, repositoryName,
+                    TimeSpan.FromSeconds(BackupOptions.BackupGapSeconds));
 
+                await Task.Delay(BackupOptions.BackupGapSeconds * 1000, cancel);
+            }
+
+            // BACKUP DATABASE
             await BackupDatabaseAsync(context, cancel);
+
+            Logger.LogTrace("[{ContextId}] {ExecutorName} Iteration {Iteration} on repository {repositoryName} ended.",
+                context.Id, ExecutorName, context.Iteration, repositoryName);
+
+            await taskCreationTask;
         }
         catch (OperationCanceledException)
         {
-            return;
+            // return gracefully, cancel was requested
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "[{ContextId}] {ExecutorName} Iteration {Iteration} on repository " +
                                 "{repositoryName} threw an ERROR.",
                 context.Id, ExecutorName, context.Iteration, repositoryName);
-
-            return;
         }
         finally
         {
             Executed = true;
         }
-
-        Logger.LogTrace("[{ContextId}] {ExecutorName} Iteration {Iteration} on repository {repositoryName} ended.",
-            context.Id, ExecutorName, context.Iteration, repositoryName);
     }
 
     private async Task WaitForIndexBackupAsync(ExecutionContext context, IRepository repository, CancellationToken cancel)
@@ -164,5 +178,37 @@ internal class BackupExecutor : ExecutorBase
         }
 
         Logger.LogTrace("[{ContextId}] {ExecutorName} DB BACKUP finished successfully.", context.Id, ExecutorName);
+    }
+
+    private async Task CreateTasksPeriodicallyAsync(ExecutionContext context, IRepository repository, CancellationToken cancel)
+    {
+        var taskCount = 0;
+
+        while (!cancel.IsCancellationRequested)
+        {
+            try
+            {
+                // create a new task
+                var taskName = $"LogTask-{DateTime.UtcNow:yyyy-MM-dd-HH-mm-ss}-{taskCount++}";
+                var taskContent = repository.CreateContent(TestContents.TaskListPath, "Task", taskName);
+                taskContent["DisplayName"] = taskName;
+
+                await taskContent.SaveAsync(cancel);
+
+                Logger.LogTrace("[{ContextId}] {ExecutorName} Marker task created: {LogTaskName} ",
+                    context.Id, ExecutorName, taskName);
+
+                await Task.Delay(1000, cancel);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Error when creating a new log task.");
+                return;
+            }
+        }
     }
 }
