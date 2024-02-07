@@ -40,10 +40,10 @@ internal class BackupExecutor : ExecutorBase
             var repository = await RepositoryCollection.GetRepositoryAsync(repositoryName, cancel);
 
             // start creating tasks periodically so that the backup/restore process can be observed
-            var taskCreationTask = CreateTasksPeriodicallyAsync(context, repository, cancel);
+            var taskCreationTask = CreateLogContentsPeriodicallyAsync(context, repository, cancel);
 
-            // wait for at least a couple of tasks to be created
-            await Task.Delay(3000, cancel);
+            // wait for at least a couple of log contents to be created
+            await Task.Delay(4000, cancel);
 
             // BACKUP INDEX
             dynamic backupResult = await repository.InvokeActionAsync<JObject>(new OperationRequest
@@ -61,6 +61,9 @@ internal class BackupExecutor : ExecutorBase
             Logger.LogTrace("[{ContextId}] {ExecutorName} Iteration {Iteration} on repository " +
                             "{repositoryName} - BackupIndex state: {State}.",
                 context.Id, ExecutorName, context.Iteration, repositoryName, state.ToUpper());
+
+            // wait for at least a couple of log contents to be created
+            await Task.Delay(4000, cancel);
 
             // wait for the index backup to finish
             if (BackupOptions.BackupGapSeconds > 0)
@@ -163,7 +166,7 @@ internal class BackupExecutor : ExecutorBase
             command.Parameters.AddWithValue("@DatabaseName", databaseName);
             command.Parameters.AddWithValue("@BackupFilePath", BackupOptions.DatabaseTarget);
 
-            command.CommandTimeout = 60 * 5;
+            command.CommandTimeout = 60 * 10;
 
             await command.ExecuteNonQueryAsync(cancel);
         }
@@ -180,23 +183,24 @@ internal class BackupExecutor : ExecutorBase
         Logger.LogTrace("[{ContextId}] {ExecutorName} DB BACKUP finished successfully.", context.Id, ExecutorName);
     }
 
-    private async Task CreateTasksPeriodicallyAsync(ExecutionContext context, IRepository repository, CancellationToken cancel)
+    private async Task CreateLogContentsPeriodicallyAsync(ExecutionContext context, IRepository repository, CancellationToken cancel)
     {
-        var taskCount = 0;
+        var contentCount = 0;
 
         while (!cancel.IsCancellationRequested)
         {
             try
             {
-                // create a new task
-                var taskName = $"LogTask-{DateTime.UtcNow:yyyy-MM-dd-HH-mm-ss}-{taskCount++}";
-                var taskContent = repository.CreateContent(TestContents.TaskListPath, "Task", taskName);
-                taskContent["DisplayName"] = taskName;
+                // create a new log content
+                var contentName = $"Log-{DateTime.UtcNow:yyyy-MM-dd-HH-mm-ss}-{contentCount++}";
+                var content = repository.CreateContent(TestContents.MemoListPath, "Memo", contentName);
+                content["DisplayName"] = contentName;
+                content["Description"] = contentName;
 
-                await taskContent.SaveAsync(cancel);
+                await content.SaveAsync(cancel);
 
-                Logger.LogTrace("[{ContextId}] {ExecutorName} Marker task created: {LogTaskName} ",
-                    context.Id, ExecutorName, taskName);
+                Logger.LogTrace("[{ContextId}] {ExecutorName} Log content created: {LogContentName} ",
+                    context.Id, ExecutorName, contentName);
 
                 await Task.Delay(1000, cancel);
             }
@@ -206,7 +210,7 @@ internal class BackupExecutor : ExecutorBase
             }
             catch (Exception ex)
             {
-                Logger.LogError(ex, "Error when creating a new log task.");
+                Logger.LogError(ex, "Error when creating a new log content.");
                 return;
             }
         }

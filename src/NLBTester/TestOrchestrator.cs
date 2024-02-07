@@ -58,7 +58,7 @@ internal class TestOrchestrator
         }
 
         _logger.LogTrace("Ensuring task list...");
-        await Tools.EnsurePathAsync(TestContents.TaskListPath, "TaskList", repository1.Server);
+        await Tools.EnsurePathAsync(TestContents.MemoListPath, "MemoList", repository1.Server);
     }
 
     public async Task<OperationResult> ExecuteAsync(CancellationToken cancel)
